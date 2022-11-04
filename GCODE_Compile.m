@@ -1,5 +1,9 @@
-function [CompiledFileName]=GCODE_Compile_V4(file_name,n,mode,setup,varargin)
-%Function to compile GCODE as a series of movement. 
+function [CompiledFileName]=GCODE_Compile(file_name,n,mode,setup,varargin)
+%Function to compile GCODE as a series of movement.
+%Updates: V5 - introduciton of LINEAR A using an extender GCODE array with
+%a nineth column. Remark: this optio is available only with a GCODE array
+%passed as a single matrix
+%
 %New sintax that accept either separated arrays or a single GCODE matrix.
 %SINTAX: 
 %[CompiledFileName]=GCODE_Compile(name,n,mode,setup,x_GCODE,y_GCODE,z_GCODE,v_GCODE, shutter_GCODE,wait_GCODE,motion_GCODE,radius_GODE, *incipit*)
@@ -34,7 +38,7 @@ function [CompiledFileName]=GCODE_Compile_V4(file_name,n,mode,setup,varargin)
 %
 %   mode:'incremental' or 'absolute'
 %
-%   setup:'Line1', 'Capable', 'Ant', 'AntGalvo' or 'NewAntGalvo'
+%   setup:'Line1', 'AntGalvo' , 'Bee' ,'Capable' or 'Ant'
 %
 %   incipit: (optional) inital comment for the description of the code
 %
@@ -47,7 +51,7 @@ function [CompiledFileName]=GCODE_Compile_V4(file_name,n,mode,setup,varargin)
     narginchk(minArgs,maxArgs)
     
 %check if we are using separated array or a single matrix for GCODE array input
-if size(varargin{1},1)>1 && size(varargin{1},1)<=8 
+if size(varargin{1},2)>1 && size(varargin{1},2)<=8  %case of GCODE matrix passed as a whole
     x_GCODE=varargin{1}(:,1)';
     y_GCODE=varargin{1}(:,2)';
     z_GCODE=varargin{1}(:,3)';
@@ -56,6 +60,7 @@ if size(varargin{1},1)>1 && size(varargin{1},1)<=8
     wait_GCODE=varargin{1}(:,6)';
     motion_GCODE=varargin{1}(:,7)';
     radius_GCODE=varargin{1}(:,8)';
+    angle_GCODE=[];
     if nargin==5
         incipit=strcat('Generic GCODE for setup ',setup) 
     elseif nargin==6
@@ -64,7 +69,26 @@ if size(varargin{1},1)>1 && size(varargin{1},1)<=8
         incipit=varargin{2}
         fprintf("Unused arguments after the 6th one")
     end
-elseif size(varargin{1},1)==1
+elseif size(varargin{1},2)==9 %case of A axis movement
+    x_GCODE=varargin{1}(:,1)';
+    y_GCODE=varargin{1}(:,2)';
+    z_GCODE=varargin{1}(:,3)';
+    v_GCODE=varargin{1}(:,4)';
+    shutter_GCODE=varargin{1}(:,5)';
+    wait_GCODE=varargin{1}(:,6)';
+    motion_GCODE=varargin{1}(:,7)';
+    radius_GCODE=varargin{1}(:,8)';
+    angle_GCODE=varargin{1}(:,9)';
+    if nargin==5
+        incipit=strcat('Generic GCODE for setup ',setup) 
+    elseif nargin==6
+        incipit=varargin{2}
+    else
+        incipit=varargin{2}
+        fprintf("Unused arguments after the 6th one")
+    end
+        
+elseif size(varargin{1},2)==1 %case of columns passed one by one
     if nargin<12
         fprintf("ERROR: wrong number of inputs. The function expects a series of row vectors containing the GCODE array componets or a single GCODE array matrix. Check sintax");
         return
@@ -77,6 +101,7 @@ elseif size(varargin{1},1)==1
         wait_GCODE=varargin{6};
         motion_GCODE=varargin{7};
         radius_GCODE=varargin{8};
+        angle_GCODE=[];
         if nargin==12
             incipit=strcat('Generic GCODE for setup ',setup) 
         elseif nargin==13
@@ -128,11 +153,23 @@ elseif size(x_GCODE)~=size(wait_GCODE)
     return
 elseif size(x_GCODE)~=size(motion_GCODE)
     fprintf("ERROR: X array and motion array do not have the same size")
-    return
-    
+    return    
 elseif size(x_GCODE)~=size(radius_GCODE)
     fprintf("ERROR: X array and radius array do not have the same size")
-    return
+    return    
+elseif size(x_GCODE)~=size(angle_GCODE)
+    if ~isempty(angle_GCODE)        
+        fprintf("ERROR: X array and A array do not have the same size")
+        return
+    end
+    
+end
+
+if ~isempty(angle_GCODE) 
+    if find(motion_GCODE~=0)
+        fprintf("ERROR: G2 or G3 used. Polarization follow not compatible with circular motion")
+        return
+    end
 end
 
 %% check of the extension of the name file
@@ -156,8 +193,6 @@ if exist(file_name,'file')
 end
 
 %% file creation and header writing
-
-
 
 fid = fopen(file_name, 'wt');
 
@@ -241,7 +276,7 @@ switch setup
                
         fprintf('Header for Capable succesfully printed\n');    
     
-   case 'AntGalvo'
+    case 'AntGalvo'
         
          fprintf(fid, '//SETUP ANT and GALVO SHUTTER\n');
          fprintf(fid, '//n= %f\n',n);
@@ -268,10 +303,10 @@ switch setup
         fprintf(fid, '\n');
                
         fprintf('Header for Ant with Galvo Shutter succesfully printed\n');
-    
-   case 'NewAntGalvo'
         
-         fprintf(fid, '//SETUP NEWANT and GALVO SHUTTER\n');
+   case 'Bee'
+        
+         fprintf(fid, '//SETUP BEE and GALVO SHUTTER\n');
          fprintf(fid, '//n= %f\n',n);
         fprintf(fid, 'ENABLE X Y Z\n');
         fprintf(fid, 'ABSOLUTE\n');
@@ -295,10 +330,9 @@ switch setup
         fprintf(fid, '\n');
         fprintf(fid, '\n');
                
-        fprintf('Header for Ant with Galvo Shutter succesfully printed\n');
-        
+        fprintf('Header for Bee with Galvo Shutter succesfully printed\n');
     otherwise
-        fprintf('Wrong Setup input. Choose between ''Line1'', ''AntGalvo'',''Capable'', ''NewAntGalvo' and ''Ant''\n');
+        fprintf('Wrong Setup input. Choose between ''Line1'', ''AntGalvo'', ''Bee'', ''Capable'' and ''Ant''\n');
         return
 end
 
@@ -306,15 +340,18 @@ end
 
 %declaration of setup dependent code lines
 switch setup
-    case {'Line1','Capable'}
+    case 'Line1'
         ShutterOn='PSOCONTROL X ON\n';
         ShutterOff='PSOCONTROL X OFF\n';
     case 'Ant'
         ShutterOn='PSOCONTROL Z ON\n';
         ShutterOff='PSOCONTROL Z OFF\n';
-    case {'AntGalvo' ,'NewAntGalvo' }
+    case 'AntGalvo'
         ShutterOn='PSOCONTROL Z OFF\n';
         ShutterOff='PSOCONTROL Z ON\n';
+    case 'Capable'
+        ShutterOn='PSOCONTROL X ON\n';
+        ShutterOff='PSOCONTROL X OFF\n';
     otherwise
         fprintf('Wrong Setup input. Choose between ''Line1'',''AntGalvo'',''Capable'' and ''Ant''\n');
         return
@@ -331,7 +368,7 @@ end
  
     fid = fopen(file_name, 'at'); %opening the file
     
-    %fprintf(fid, "MSGDISPLAY 1,"start #TS"");%MSGDISPLAY 1,"start #TS"
+    %fprintf(fid, "MSGDISPLAY 1,"start #TS"");  %MSGDISPLAY 1,"start #TS"
     
     M=size(shutter_GCODE);
 
@@ -367,6 +404,12 @@ end
                         fprintf(fid, 'Z%f ',z_GCODE(i)/n);
                     end
                 end
+                
+                if ~isempty(angle_GCODE)
+                    if (i>1)&&(angle_GCODE(i)~=angle_GCODE(i-1))||(i==1)
+                        fprintf(fid, ' A%f ',angle_GCODE(i));
+                    end
+                end  
                 
                 if motion_GCODE(i)~=0
                     if radius_GCODE(i)==0
@@ -423,7 +466,12 @@ end
                         fprintf(fid, ' Z%f ',z_GCODE(i)/n);
                     end
                 end
-
+                if ~isempty(angle_GCODE)
+                    if (i>1)&&(angle_GCODE(i)~=angle_GCODE(i-1))||(i==1)
+                        fprintf(fid, ' A%f ',angle_GCODE(i));
+                    end
+                end                
+                
                 if motion_GCODE(i)~=0
                     if radius_GCODE(i)==0
                         fprintf("ERROR: circular motion with 0 radius at line %d. 1mm used instead\n")
